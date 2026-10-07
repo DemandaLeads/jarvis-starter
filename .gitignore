@@ -1,0 +1,7 @@
+.env
+jarvis.config.json
+.pending-emails.json
+.jarvis-session-id
+node_modules/
+*.log
+.DS_Store

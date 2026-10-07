@@ -1,0 +1,18 @@
+{
+  "name": "jarvis-starter",
+  "version": "1.0.0",
+  "description": "Jarvis: painel local que conversa com o Claude Code, organiza o seu Brain no Obsidian e fala com voz grátis.",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "bash scripts/testar.sh"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "express": "^4.22.3",
+    "nodemailer": "^9.1.1",
+    "ws": "^8.22.0"
+  }
+}

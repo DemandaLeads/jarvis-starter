@@ -1,6 +1,6 @@
 # Jarvis
 
-Um assistente pessoal que roda no seu Mac. Você conversa com ele por texto ou voz, e ele organiza tudo num **Brain**: uma pasta de notas que você também abre no Obsidian. Cada pasta do Brain vira uma **aba** do painel, então ele toma a forma do que você faz.
+Um assistente pessoal que roda no seu computador (Mac ou Windows). Você conversa com ele por texto ou voz, e ele organiza tudo num **Brain**: uma pasta de notas que você também abre no Obsidian. Cada pasta do Brain vira uma **aba** do painel, então ele toma a forma do que você faz.
 
 - **Conversa** pelo painel (`localhost:3131`) ou pelo terminal, com o Claude Code por trás.
 - **Fala** com voz neural grátis, que roda no próprio Mac (Piper). **Ouve** pelo microfone do navegador.
@@ -9,7 +9,7 @@ Um assistente pessoal que roda no seu Mac. Você conversa com ele por texto ou v
 - **Email com aprovação**: ele escreve, você revisa e aprova. Nada sai sem você.
 - **YouTube → Brain**: cola o link e ele salva a transcrição e um resumo.
 
-## Instalar (Mac)
+## Instalar no Mac
 
 Abra o terminal (no VS Code: menu **Terminal → Novo Terminal**), cole e aperte Enter:
 
@@ -33,13 +33,25 @@ No fim ele oferece o **tour guiado** (`/primeiros-passos`): cria as suas abas, t
 
 Só quer ver o estudo, sem instalar? Rode `bash instalar.sh --diagnostico` depois de clonar.
 
+## Instalar no Windows
+
+No VS Code, abra o terminal (menu **Terminal → Novo Terminal**; no Windows ele já é o PowerShell), cole e aperte Enter:
+
+```powershell
+irm https://raw.githubusercontent.com/DemandaLeads/jarvis-starter/main/instalar.ps1 | iex
+```
+
+São os mesmos 7 passos do Mac: estudo do PC, Claude Code, Node, Brain, Obsidian, voz e painel. O painel liga sozinho quando o Windows liga (pasta Inicializar) e religa se cair. Precisa do **Windows 10 versão 1809** ou mais novo, ou do Windows 11. A voz neural (Piper) roda em PC com processador Intel ou AMD; em PC com chip ARM fica a voz do próprio Windows. O microfone funciona no Chrome e no Edge.
+
+Só o estudo do PC: `powershell -ExecutionPolicy Bypass -File "$HOME\.jarvis\app\instalar.ps1" -Diagnostico`
+
 ## O que precisa
 
-- Mac com **macOS 13** ou mais novo e uns 3 GB livres.
+- Mac com **macOS 13** ou mais novo, ou Windows 10 (1809) / Windows 11, e uns 3 GB livres.
 - Uma **conta Claude paga (Pro ou Max)**. É o único custo: o plano grátis do Claude não inclui o Claude Code. Todo o resto (Obsidian, voz, Node, painel) é grátis.
-- O **Google Chrome** é recomendado pro microfone.
+- O **Google Chrome** (ou o Edge, no Windows) é recomendado pro microfone.
 
-Não precisa de git, Homebrew nem Xcode.
+Não precisa de git, Homebrew, Xcode nem permissão de administrador.
 
 ## Onde fica cada coisa
 
@@ -58,13 +70,22 @@ O painel só aceita conexões desta máquina (`127.0.0.1`) e desta página: outr
 
 Cole o mesmo comando da instalação de novo: ele baixa a versão nova, mantém o seu config, a senha do email e a fila, e não mexe no Brain.
 
-## Comandos úteis
+## Comandos úteis (Mac)
 
 ```bash
 bash ~/.jarvis/app/instalar.sh                 # conserta o que faltar (não apaga nada seu)
 bash ~/.jarvis/app/instalar.sh --voz           # trocar a voz
 launchctl kickstart -k gui/$(id -u)/com.jarvis.painel   # reiniciar o painel
 bash ~/.jarvis/app/desinstalar.sh              # remover (o Brain fica)
+```
+
+## Comandos úteis (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$HOME\.jarvis\app\instalar.ps1"        # conserta o que faltar
+powershell -ExecutionPolicy Bypass -File "$HOME\.jarvis\app\instalar.ps1" -Voz   # trocar a voz
+powershell -ExecutionPolicy Bypass -File "$HOME\.jarvis\app\reiniciar.ps1"       # reiniciar o painel
+powershell -ExecutionPolicy Bypass -File "$HOME\.jarvis\app\desinstalar.ps1"     # remover (o Brain fica)
 ```
 
 ## Para quem mexe no código
@@ -76,3 +97,5 @@ Testes (sem gastar crédito e sem som; o `claude` e a voz são trocados por dubl
 ```bash
 npm install && npm test
 ```
+
+A cada envio, o GitHub roda os testes num Mac e num Windows de verdade (`.github/workflows/teste.yml`); no Windows, ele instala tudo do zero pelo mesmo `irm ... | iex` que a pessoa cola.

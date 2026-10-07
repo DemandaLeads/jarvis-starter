@@ -5,7 +5,7 @@ title: "Como usar o Jarvis"
 # Como usar o Jarvis no dia a dia
 
 ## O painel
-Abre sozinho quando o Mac liga. Se fechou a aba, é só abrir no navegador (de preferência o Google Chrome):
+Abre sozinho quando o {{COMPUTADOR}} liga. Se fechou a aba, é só abrir no navegador (de preferência o {{NAVEGADOR_MIC}}):
 
 ```
 http://localhost:3131
@@ -26,7 +26,7 @@ http://localhost:3131
 No VS Code, abra o terminal (menu Terminal → Novo Terminal) e digite:
 
 ```
-cd "{{BRAIN}}" && claude --continue
+{{CMD_CONTINUAR}}
 ```
 
 O `--continue` retoma a última conversa, então ele lembra do que vocês falaram.
@@ -35,23 +35,23 @@ O `--continue` retoma a última conversa, então ele lembra do que vocês falara
 Se o painel travar ou ficar OFFLINE:
 
 ```
-launchctl kickstart -k gui/$(id -u)/com.jarvis.painel
+{{CMD_REINICIAR}}
 ```
 
 **Deu certo se:** em uns 5 segundos o painel volta a mostrar ONLINE.
-**Se der errado:** rode o instalador de novo, ele conserta o que faltar e não apaga nada: `bash ~/.jarvis/app/instalar.sh`
+**Se der errado:** rode o instalador de novo, ele conserta o que faltar e não apaga nada: `{{CMD_CONSERTAR}}`
 
 ## Onde fica cada coisa
 | O quê | Onde |
 |---|---|
 | Seu Brain (páginas, memória) | `{{BRAIN}}` |
-| O programa do Jarvis | `~/.jarvis/app` |
-| A voz | `~/.jarvis/voz` |
-| O registro de erros | `~/.jarvis/logs/jarvis.log` |
+| O programa do Jarvis | `{{DIR_JARVIS}}{{SEP}}app` |
+| A voz | `{{DIR_JARVIS}}{{SEP}}voz` |
+| O registro de erros | `{{ARQ_LOG}}` |
 
 ## Desinstalar
 Remove o programa e a voz. **O seu Brain fica**, com tudo dentro.
 
 ```
-bash ~/.jarvis/app/desinstalar.sh
+{{CMD_DESINSTALAR}}
 ```

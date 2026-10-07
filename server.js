@@ -18,6 +18,8 @@ process.on('unhandledRejection', e => console.error('⚠️  erro não tratado:'
 process.on('uncaughtException', e => { console.error('⚠️  exceção não tratada, reiniciando:', e && e.stack || e); process.exit(1); });
 
 const HOME = os.homedir();
+const WIN = process.platform === 'win32';
+const JH = path.join(HOME, '.jarvis');          // programa, Node, voz e logs do Jarvis
 const CFG_FILE = path.join(__dirname, 'jarvis.config.json');
 
 // ── Config (jarvis.config.json) — o instalador escreve; o painel muda só a voz ──
@@ -27,13 +29,13 @@ const PADRAO = {
   brainName: 'Jarvis Brain',
   abrirNoInicio: true,
   navegador: '',
-  ytdlp: path.join(HOME, '.jarvis/bin/yt-dlp'),
+  ytdlp: path.join(JH, 'bin', WIN ? 'yt-dlp.exe' : 'yt-dlp'),
   voz: {
     ativa: true,
-    motor: 'piper',                     // piper = voz neural grátis e offline · say = voz do Mac
-    python: path.join(HOME, '.jarvis/voz/.venv/bin/python'),
-    modelo: path.join(HOME, '.jarvis/voz/vozes/pt_BR-faber-medium.onnx'),
-    say: 'Luciana',
+    motor: 'piper',                     // piper = voz neural grátis e offline · say = voz do sistema
+    python: WIN ? path.join(JH, 'voz', '.venv', 'Scripts', 'python.exe') : path.join(JH, 'voz', '.venv', 'bin', 'python'),
+    modelo: path.join(JH, 'voz', 'vozes', 'pt_BR-faber-medium.onnx'),
+    say: WIN ? '' : 'Luciana',          // no Windows a voz de reserva é a do próprio Windows em pt-BR
   },
 };
 let CFG = { ...PADRAO };
@@ -57,16 +59,30 @@ const AJUSTES_SEGUROS = JSON.stringify({ permissions: { blockReadsOutsideWorking
 
 // Acha um programa sem usar shell: PATH + os lugares onde os instaladores oficiais põem
 function acharBinario(nome, extras = []) {
-  const dirs = [...(process.env.PATH || '').split(':'), ...extras];
-  for (const d of dirs) {
-    const p = path.join(d, nome);
-    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch {}
+  const dirs = [...(process.env.PATH || '').split(path.delimiter), ...extras].filter(Boolean);
+  for (const d of dirs) for (const n of (WIN ? [nome + '.exe', nome] : [nome])) {
+    const p = path.join(d, n);
+    try { fs.accessSync(p, fs.constants.X_OK); if (fs.statSync(p).isFile()) return p; } catch {}
   }
   return '';
 }
 const CLAUDE_BIN = process.env.CLAUDE_BIN ||
-  acharBinario('claude', [path.join(HOME, '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin']) ||
-  path.join(HOME, '.local/bin/claude');
+  acharBinario('claude', [path.join(HOME, '.local', 'bin'), ...(WIN ? [] : ['/opt/homebrew/bin', '/usr/local/bin'])]) ||
+  path.join(HOME, '.local', 'bin', WIN ? 'claude.exe' : 'claude');
+// Como a pessoa roda o instalador de novo (aparece nas mensagens de erro)
+const CMD_INSTALAR = WIN ? 'powershell -ExecutionPolicy Bypass -File "$HOME\\.jarvis\\app\\instalar.ps1"' : 'bash ~/.jarvis/app/instalar.sh';
+const ARQ_LOG = WIN ? '%USERPROFILE%\\.jarvis\\logs\\jarvis.log' : '~/.jarvis/logs/jarvis.log';
+
+// PORTA ÚNICA pra rodar qualquer programa: sempre execFile (argumentos como lista, nunca um shell)
+// e com o stdin fechado na hora. Nos testes, JARVIS_STUBS troca um programa pelo dublê dele.
+const STUBS = (() => { try { return JSON.parse(process.env.JARVIS_STUBS || '{}'); } catch { return {}; } })();
+function executar(bin, args, opts, cb) {
+  const nome = path.basename(String(bin)).replace(/\.exe$/i, '').toLowerCase();
+  const [real, ...prefixo] = STUBS[nome] || [bin];
+  const filho = execFile(real, [...prefixo, ...args], { env: process.env, ...opts }, cb || (() => {}));
+  filho.stdin?.end();   // sem isto o claude -p espera 3 s por uma entrada que nunca vem
+  return filho;
+}
 
 // Quem está rodando: o instalador confere isto pra não confundir com uma versão antiga presa na porta
 const VERSAO = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 12);
@@ -332,7 +348,7 @@ function lerComandos(dir) {
 }
 let sysCache = { ts: 0, mcps: [], clis: [] };
 function rodar(bin, args, timeout = 8000) {
-  return new Promise(r => { const c = execFile(bin, args, { timeout, env: process.env, cwd: BRAIN_DIR }, (e, so) => r(e ? '' : String(so || ''))); c.stdin?.end(); });
+  return new Promise(r => executar(bin, args, { timeout, cwd: BRAIN_DIR }, (e, so) => r(e ? '' : String(so || ''))));
 }
 async function getSysInfo() {
   if (sysCache.ts && Date.now() - sysCache.ts < 5 * 60 * 1000) return sysCache;
@@ -472,12 +488,13 @@ function claudeArgs(texto, sid, criada) {
 // O claude escreve o motivo da falha às vezes no stderr, às vezes no stdout. Nunca mostra o comando
 // em si (ele carrega o texto da pessoa e os caminhos da máquina).
 function erroAmigavel(saida, err) {
-  if (err && err.code === 'ENOENT') return L('Não achei o Claude Code. Rode o instalador de novo: bash ~/.jarvis/app/instalar.sh', 'Claude Code not found. Run the installer again.');
+  if (err && err.code === 'ENOENT') return L('Não achei o Claude Code. Rode o instalador de novo: ' + CMD_INSTALAR, 'Claude Code not found. Run the installer again.');
+  if (err && err.code === 'EINVAL') return L('O Claude Code deste PC foi instalado pelo npm (claude.cmd). Instale pelo instalador oficial: ' + CMD_INSTALAR, 'Reinstall Claude Code with the official installer.');
   if (/not logged in|invalid api key|\/login|authenticat|oauth|credential/i.test(saida))
     return L('O Claude Code não está logado. No terminal, rode: claude auth login', 'Claude Code is not logged in. In the terminal run: claude auth login');
   if (/usage limit|rate limit|limit reached|hit your .{0,20}limit|(weekly|daily|session) limit|overloaded/i.test(saida)) return L('O limite de uso da sua conta Claude acabou por agora. Ele volta sozinho' + ((saida.match(/resets? ([^\n·]+)/i) || [])[1] ? ' (' + saida.match(/resets? ([^\n·]+)/i)[1].trim() + ')' : ' mais tarde') + '.', 'Your Claude usage limit was reached. It resets later.');
   if ((err && err.killed) || /timed out|ETIMEDOUT|SIGTERM/i.test(saida)) return L('Demorou demais e eu parei. Tente pedir em partes menores.', 'It took too long and I stopped. Try a smaller request.');
-  return L('Não consegui responder agora. O detalhe ficou em ~/.jarvis/logs/jarvis.log.', 'I could not reply. Details in ~/.jarvis/logs/jarvis.log.');
+  return L('Não consegui responder agora. O detalhe ficou em ' + ARQ_LOG + '.', 'I could not reply. Details in ' + ARQ_LOG + '.');
 }
 
 let claudeBusy = false, msgCount = 0, lastMsgTime = Date.now();
@@ -491,9 +508,8 @@ function maybeRotateSession() {
   const oldSID = jarvisSID;
   const capt = L('Antes de encerrarmos esta conversa: salve no Brain (wiki/) o que for importante desta conversa (decisões, preferências, fatos), atualize wiki/index.md e wiki/log.md. Responda só: capturado.',
                  'Before we close this conversation: save what matters (decisions, preferences, facts) to the Brain (wiki/), update wiki/index.md and wiki/log.md. Reply only: captured.');
-  const cap = execFile(CLAUDE_BIN, claudeArgs(capt, oldSID, true), { cwd: BRAIN_DIR, env: process.env, maxBuffer: 10 * 1024 * 1024, timeout: 5 * 60 * 1000 },
+  executar(CLAUDE_BIN, claudeArgs(capt, oldSID, true), { cwd: BRAIN_DIR, maxBuffer: 10 * 1024 * 1024, timeout: 5 * 60 * 1000 },
     (e, out) => console.log('🗂️  Captura antes de trocar a sessão:', String(out || (e ? 'falhou' : '')).trim().slice(0, 60)));
-  cap.stdin?.end();
   novaSessao(); msgCount = 0;
   console.log('🔄 Sessão nova (a anterior foi resumida no Brain).');
 }
@@ -504,8 +520,8 @@ function drainMsgQueue() {
   claudeBusy = true;
   const text = msgQueue.shift();
   const rodarUma = (tentativa) => {
-    const filho = execFile(CLAUDE_BIN, claudeArgs(text, jarvisSID, sessionCreated),
-      { cwd: BRAIN_DIR, env: process.env, maxBuffer: 10 * 1024 * 1024, timeout: 15 * 60 * 1000 },
+    executar(CLAUDE_BIN, claudeArgs(text, jarvisSID, sessionCreated),
+      { cwd: BRAIN_DIR, maxBuffer: 10 * 1024 * 1024, timeout: 15 * 60 * 1000 },
       (err, stdout, stderr) => {
         const saida = `${stderr || ''}\n${err ? stdout || '' : ''}\n${err?.code || ''}`;
         if (err && tentativa < 1) {
@@ -525,7 +541,6 @@ function drainMsgQueue() {
         }
         drainMsgQueue();
       });
-    filho.stdin?.end();   // sem isto o claude -p espera 3 s por uma entrada que nunca vem
   };
   rodarUma(0);
 }
@@ -553,7 +568,7 @@ function vttParaTexto(vtt) {
 app.post('/api/youtube', (req, res) => {
   const id = idDoYoutube(req.body?.url);
   if (!id) return res.status(400).json({ ok: false, error: L('Isso não parece um link do YouTube.', 'That does not look like a YouTube link.') });
-  if (!fs.existsSync(CFG.ytdlp)) return res.json({ ok: false, error: L('O yt-dlp não está instalado. Rode o instalador de novo.', 'yt-dlp is not installed.') });
+  if (!fs.existsSync(CFG.ytdlp)) return res.json({ ok: false, error: L('O yt-dlp não está instalado. Rode o instalador de novo: ' + CMD_INSTALAR, 'yt-dlp is not installed.') });
   const url = `https://www.youtube.com/watch?v=${id}`;
   const pasta = path.join(BRAIN_DIR, 'raw', 'videos');
   try { fs.mkdirSync(pasta, { recursive: true }); } catch {}
@@ -562,7 +577,7 @@ app.post('/api/youtube', (req, res) => {
   const args = ['--ignore-config', '--no-playlist', '--skip-download', '--write-subs', '--write-auto-subs',
     '--sub-langs', 'pt,pt-BR,en,en-US', '--sub-format', 'vtt', '--write-description',
     '--js-runtimes', 'node:' + process.execPath, '-o', path.join(pasta, '%(id)s'), '--', url];
-  execFile(CFG.ytdlp, args, { timeout: 3 * 60 * 1000, env: process.env }, (err) => {
+  executar(CFG.ytdlp, args, { timeout: 3 * 60 * 1000 }, (err) => {
     const vtt = (() => { try { const v = fs.readdirSync(pasta).filter(f => f.startsWith(id + '.') && f.endsWith('.vtt')); return v.find(f => /\.pt/.test(f)) || v[0]; } catch { return null; } })();
     const temDesc = fs.existsSync(path.join(pasta, id + '.description'));
     let txt = '';
@@ -632,16 +647,27 @@ function speak(text) {
   speakQueue.push(clean);
   if (!speaking) drainSpeakQueue();
 }
-function tocar(bin, args) {
-  return new Promise(r => { tocando = execFile(bin, args, () => { tocando = null; r(); }); });
+function tocar(bin, args, env) {
+  return new Promise(r => { tocando = executar(bin, args, env ? { env: { ...process.env, ...env } } : {}, () => { tocando = null; r(); }); });
 }
+// Windows: o PowerShell toca o wav e fala com a voz do sistema. O caminho e o texto vão por
+// VARIÁVEL DE AMBIENTE, nunca colados no comando: texto do Claude não vira código do PowerShell.
+const PS = ['-NoProfile', '-NonInteractive', '-Command'];
+const PS_TOCAR = '(New-Object Media.SoundPlayer $env:JARVIS_WAV).PlaySync()';
+const PS_FALAR = "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; " +
+  "try { $s.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::NotSet, [System.Speech.Synthesis.VoiceAge]::NotSet, 0, [Globalization.CultureInfo]'pt-BR') } catch {}; " +
+  "$s.Speak($env:JARVIS_FALA)";
+const tocarArquivo = wav => WIN ? tocar('powershell.exe', [...PS, PS_TOCAR], { JARVIS_WAV: wav }) : tocar('afplay', [wav]);
+const falarSistema = txt => WIN ? tocar('powershell.exe', [...PS, PS_FALAR], { JARVIS_FALA: txt })
+  : tocar('say', ['-v', CFG.voz.say || 'Luciana', '--', txt]);   // "--": o texto é só texto, mesmo começando com "-"
+
 async function drainSpeakQueue() {
   if (!speakQueue.length) { speaking = false; return; }
   speaking = true;
   const next = speakQueue.shift();
   const wav = await sintetizar(next);
-  if (wav) { await tocar('afplay', [wav]); fs.unlink(wav, () => {}); }
-  else await tocar('say', ['-v', CFG.voz.say, '--', next]);   // execFile + "--": o texto é só texto, mesmo começando com "-"
+  if (wav) { await tocarArquivo(wav); fs.unlink(wav, () => {}); }
+  else await falarSistema(next);
   drainSpeakQueue();
 }
 function pararFala() { speakQueue = []; if (tocando) try { tocando.kill(); } catch {} }
@@ -698,14 +724,15 @@ chokidar.watch([path.join(HOME, '.claude/skills'), path.join(HOME, '.claude/comm
 // Abre o navegador UMA vez por vez que o Mac liga. Reinício do processo (o launchd religa se cair)
 // não abre aba nova: senão um defeito qualquer viraria uma enxurrada de abas.
 function abrirUmaVezPorBoot(url) {
-  execFile('sysctl', ['-n', 'kern.boottime'], (e, out) => {
-    const boot = String(out || '').match(/sec = (\d+)/)?.[1] || 'desconhecido';
-    const marca = path.join(__dirname, '.aberto-no-boot');
-    let anterior = ''; try { anterior = fs.readFileSync(marca, 'utf8').trim(); } catch {}
-    if (anterior === boot) return;
-    try { fs.writeFileSync(marca, boot); } catch {}
-    execFile('open', CFG.navegador ? ['-a', CFG.navegador, url] : [url], err => { if (err) execFile('open', [url], () => {}); });
-  });
+  const boot = Math.round(Date.now() / 1000 - os.uptime());           // hora em que o computador ligou
+  const marca = path.join(__dirname, '.aberto-no-boot');
+  let anterior = 0; try { anterior = +fs.readFileSync(marca, 'utf8').trim() || 0; } catch {}
+  if (Math.abs(anterior - boot) < 120) return;                        // mesmo boot (margem pro relógio)
+  try { fs.writeFileSync(marca, String(boot)); } catch {}
+  if (WIN) {
+    if (CFG.navegador && fs.existsSync(CFG.navegador)) executar(CFG.navegador, [url]);
+    else executar('explorer.exe', [url]);                             // abre no navegador padrão
+  } else executar('open', CFG.navegador ? ['-a', CFG.navegador, url] : [url], err => { if (err) executar('open', [url]); });
 }
 
 server.on('error', e => {

@@ -12,7 +12,7 @@ Por segurança, **o painel não consegue criar skills**: essa pasta é protegida
 No VS Code: menu **Terminal → Novo Terminal**, e digite:
 
 ```
-cd "{{BRAIN}}" && claude
+{{CMD_ABRIR_BRAIN}}
 ```
 
 ## 2. Peça a skill

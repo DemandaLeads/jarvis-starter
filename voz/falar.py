@@ -14,6 +14,10 @@ import wave
 
 from piper import PiperVoice
 
+# UTF-8 nos dois sentidos: no Windows o Python lê o stdin em cp1252 e "Olá" viraria "OlÃ¡" na voz
+sys.stdin.reconfigure(encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8")
+
 voz = PiperVoice.load(sys.argv[1])
 pasta = tempfile.mkdtemp(prefix="jarvis-voz-")
 

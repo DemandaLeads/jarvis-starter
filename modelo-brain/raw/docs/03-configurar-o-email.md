@@ -21,17 +21,17 @@ Dê o nome **Jarvis** e clique em Criar. Aparecem **16 letras**. Deixe essa jane
 No terminal do VS Code:
 
 ```
-cd ~/.jarvis/app && cp -n .env.example .env && open -e .env
+{{CMD_ENV}}
 ```
 
-Abre um arquivo de texto. Troque `seuemail@gmail.com` pelo seu Gmail e cole as 16 letras depois de `EMAIL_APP_PASSWORD=`. Salve (Cmd+S) e feche.
+Abre um arquivo de texto. Troque `seuemail@gmail.com` pelo seu Gmail e cole as 16 letras depois de `EMAIL_APP_PASSWORD=`. Salve ({{ATALHO_SALVAR}}) e feche.
 
 **Nunca** mande essa senha no chat, nem pro Jarvis. Ela vai só nesse arquivo.
 
 ## 4. Reinicie o Jarvis
 
 ```
-launchctl kickstart -k gui/$(id -u)/com.jarvis.painel
+{{CMD_REINICIAR}}
 ```
 
 **Deu certo se:** a aba Email não mostra mais o aviso amarelo.

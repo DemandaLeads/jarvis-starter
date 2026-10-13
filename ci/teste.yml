@@ -1,0 +1,137 @@
+# ESTACIONADO AQUI: o GitHub recusa arquivo em .github/workflows sem a permissão "workflow".
+# Quando a credencial tiver ela (gh auth refresh -h github.com -s workflow), mover pra
+# .github/workflows/teste.yml e enviar; aí ele roda no Mac e no Windows a cada envio.
+#
+# Testa o Jarvis num Mac e num Windows de verdade (máquinas do GitHub) a cada envio.
+# No Windows, roda a instalação inteira do jeito que a pessoa roda: "irm ... | iex".
+# Fica de fora só o que precisa de gente: login no Claude, microfone e alto-falante.
+name: Teste
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Painel (markdown e escape)
+        run: node scripts/testar-painel.js
+      - name: Servidor de ponta a ponta
+        run: node scripts/testar.js
+      - name: Sintaxe dos scripts do Mac
+        run: bash -n instalar.sh && bash -n desinstalar.sh && bash -n scripts/testar-instalador.sh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      JARVIS_HOME: ${{ runner.temp }}\jh
+      JARVIS_PORTA: '3197'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Sintaxe dos scripts do Windows (PowerShell 5.1)
+        shell: powershell
+        run: |
+          $erros = 0
+          foreach ($f in 'instalar.ps1', 'reiniciar.ps1', 'desinstalar.ps1', 'scripts\windows\instalador.ps1') {
+            $tokens = $null; $falhas = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).Path, [ref]$tokens, [ref]$falhas)
+            if ($falhas) { $falhas | ForEach-Object { Write-Host "$f linha $($_.Extent.StartLineNumber): $($_.Message)" }; $erros++ } else { Write-Host "OK  $f" }
+          }
+          # o porteiro roda pelo "irm | iex": tem que ser ASCII puro; os outros precisam de BOM pro 5.1 ler acento
+          if ([IO.File]::ReadAllBytes((Resolve-Path 'instalar.ps1').Path) | Where-Object { $_ -gt 127 }) { Write-Host 'FALHOU  instalar.ps1 tem byte fora do ASCII'; $erros++ }
+          foreach ($f in 'reiniciar.ps1', 'desinstalar.ps1', 'scripts\windows\instalador.ps1') {
+            $b = [IO.File]::ReadAllBytes((Resolve-Path $f).Path)
+            if (-not ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)) { Write-Host "FALHOU  $f sem BOM"; $erros++ }
+          }
+          if ($erros) { exit 1 }
+
+      - run: npm ci
+      - name: Painel (markdown e escape)
+        run: node scripts/testar-painel.js
+      - name: Servidor de ponta a ponta (dublês em Node)
+        run: node scripts/testar.js
+
+      - name: Instalação do zero, pelo comando que a pessoa cola
+        shell: powershell
+        env:
+          JARVIS_ZIP_URL: https://codeload.github.com/${{ github.repository }}/zip/${{ github.sha }}
+          JARVIS_AUTO: '1'
+          JARVIS_NOME: Teste
+          JARVIS_BRAIN: ${{ runner.temp }}\Teste Brain
+          JARVIS_SEM_AUTOINICIO: '1'
+          JARVIS_SEM_SOM: '1'
+          JARVIS_PULAR_LOGIN: '1'
+        run: irm "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/instalar.ps1" | iex
+
+      - name: Conferir o que ficou instalado
+        shell: powershell
+        run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          $OutputEncoding = New-Object System.Text.UTF8Encoding $false
+          $JH = $env:JARVIS_HOME; $BRAIN = "$env:RUNNER_TEMP\Teste Brain"; $script:ok = $true
+          function Conferir($cond, $nome) { if ($cond) { Write-Host "  OK      $nome" } else { Write-Host "  FALHOU  $nome"; $script:ok = $false } }
+          $c = Invoke-RestMethod "http://127.0.0.1:$env:JARVIS_PORTA/api/config"
+          $esperada = (Get-FileHash "$JH\app\server.js").Hash.Substring(0, 12).ToLower()
+          Conferir ($c.app -eq 'jarvis-starter' -and $c.versao -eq $esperada) "painel no ar com a versão instalada ($($c.versao))"
+          $b = Invoke-RestMethod "http://127.0.0.1:$env:JARVIS_PORTA/api/brain"
+          Conferir ($b.legivel -and $b.total -ge 3) "painel lê o Brain ($($b.total) páginas)"
+          Conferir (Test-Path "$BRAIN\CLAUDE.md") 'Brain montado com o manual'
+          Conferir (-not (Select-String -Path "$BRAIN\raw\docs\*.md" -Pattern 'launchctl|bash ~|open -e|&& claude' -Quiet)) 'guias sem comando de Mac'
+          Conferir ((Select-String -Path "$BRAIN\raw\docs\01-como-usar-o-jarvis.md" -Pattern 'reiniciar.ps1' -Quiet)) 'guias com o comando do Windows'
+          Conferir ((& "$JH\bin\yt-dlp.exe" --version) -match '^\d{4}\.') 'yt-dlp.exe instalado e rodando'
+          $r = '{"id":"ci","texto":"Olá, teste de voz com acentuação."}' | & "$JH\voz\.venv\Scripts\python.exe" "$JH\app\voz\falar.py" "$JH\voz\vozes\pt_BR-faber-medium.onnx"
+          $wav = (@($r)[-1] | ConvertFrom-Json).wav
+          Conferir ($wav -and (Test-Path $wav) -and (Get-Item $wav).Length -gt 10000) 'Piper gera áudio no Windows (com acento)'
+          $obs = @("$env:LOCALAPPDATA\Programs\Obsidian\Obsidian.exe", "$env:LOCALAPPDATA\Obsidian\Obsidian.exe", "$env:ProgramFiles\Obsidian\Obsidian.exe") | Where-Object { Test-Path $_ }
+          Conferir ($obs) "Obsidian instalado ($obs)"
+          Conferir ((Test-Path "$JH\vigia.cmd") -and (Test-Path "$JH\iniciar.vbs")) 'vigia do painel criado'
+          # conversa pelo painel: o claude.exe de verdade roda (deslogado, então tem que responder o aviso de login)
+          $js = "const W=require(process.argv[1]);const ws=new W('ws://127.0.0.1:$env:JARVIS_PORTA',{origin:'http://localhost:$env:JARVIS_PORTA'});ws.on('open',()=>ws.send(JSON.stringify({type:'voice_message',text:'oi'})));ws.on('message',m=>{const d=JSON.parse(m);if(d.type==='jarvis_response'){console.log(d.text);process.exit(0)}});setTimeout(()=>{console.log('TIMEOUT');process.exit(1)},90000);"
+          $resp = & "$JH\node\node.exe" -e $js "$JH\app\node_modules\ws"
+          Write-Host "  resposta do painel: $resp"
+          Conferir ($resp -match 'claude auth login|logado|limite') 'painel chama o claude.exe e traduz o erro (não trava, não vaza comando)'
+          # reiniciar
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$JH\app\reiniciar.ps1"
+          Conferir ($LASTEXITCODE -eq 0) 'reiniciar.ps1 derruba e o vigia religa'
+          if (-not $script:ok) { exit 1 }
+
+      - name: YouTube de verdade (informativo; o YouTube costuma bloquear máquinas de servidor)
+        shell: powershell
+        continue-on-error: true
+        run: |
+          $r = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$env:JARVIS_PORTA/api/youtube" -ContentType 'application/json' -Body '{"url":"https://youtu.be/jNQXAC9IVRw"}'
+          Write-Host "  POST /api/youtube: $($r | ConvertTo-Json -Compress)"
+          Start-Sleep -Seconds 60
+          Get-ChildItem "$env:RUNNER_TEMP\Teste Brain\raw\videos" | Format-Table Name, Length
+          if (-not (Test-Path "$env:RUNNER_TEMP\Teste Brain\raw\videos\jNQXAC9IVRw.description")) { exit 1 }
+
+      - name: Desinstalar (o Brain tem que ficar)
+        shell: powershell
+        env:
+          JARVIS_AUTO: '1'
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:JARVIS_HOME\app\desinstalar.ps1"
+          if (Test-Path $env:JARVIS_HOME) { Write-Host 'FALHOU  a pasta do Jarvis ficou'; exit 1 }
+          if (-not (Test-Path "$env:RUNNER_TEMP\Teste Brain\CLAUDE.md")) { Write-Host 'FALHOU  o Brain sumiu'; exit 1 }
+          Write-Host '  OK  Jarvis removido e Brain intacto'
+
+      - name: Guardar os logs se algo falhou
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-windows
+          path: ${{ runner.temp }}\jh\logs
+          if-no-files-found: ignore
